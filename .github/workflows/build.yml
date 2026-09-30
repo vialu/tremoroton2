@@ -15,7 +15,16 @@ jobs:
         include:
           - os: windows-latest
             artifact_name: TSI_App-Windows
-          - os: macos-latest
+          # macOS: built on an Intel (x86_64) runner on purpose. The "sonpy"
+          # wheel currently published for macOS only contains a working
+          # x86_64 binary (not a true arm64/universal2 build), so building on
+          # Apple Silicon runners fails with an architecture-mismatch error.
+          # Building on Intel avoids that entirely — the resulting .app runs
+          # natively on Intel Macs and automatically via Rosetta 2 on Apple
+          # Silicon Macs (Rosetta is preinstalled on virtually every M-series
+          # Mac still in use, and macOS offers to install it on first launch
+          # of an Intel app if it's somehow missing).
+          - os: macos-15-intel
             artifact_name: TSI_App-Mac
 
     runs-on: ${{ matrix.os }}
@@ -37,7 +46,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # --onefile   -> a single double-clickable file to share
+      # --onefile   -> a single double-clickable file to share (Windows only:
+      #                 PyInstaller has deprecated combining --onefile with
+      #                 --windowed on macOS .app bundles, so Mac uses --onedir
+      #                 below instead — it still produces one TSI_App.app,
+      #                 just built from a folder internally instead of a
+      #                 single blob)
       # --windowed  -> no background console window (this is a GUI app);
       #                 on macOS this is also what makes PyInstaller produce
       #                 a real double-clickable .app bundle instead of a
@@ -45,9 +59,18 @@ jobs:
       # --collect-all sonpy -> sonpy wraps a compiled library; this makes
       #                 sure PyInstaller grabs every file it needs, not just
       #                 the parts its static import-scanner can see
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
         run: >
           pyinstaller --onefile --windowed --name "TSI_App"
+          --collect-all sonpy
+          --hidden-import matplotlib.backends.backend_tkagg
+          tsi_app.py
+
+      - name: Build with PyInstaller (macOS)
+        if: runner.os == 'macOS'
+        run: >
+          pyinstaller --onedir --windowed --name "TSI_App"
           --collect-all sonpy
           --hidden-import matplotlib.backends.backend_tkagg
           tsi_app.py
