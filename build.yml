@@ -1,0 +1,75 @@
+name: Build TSI App (Windows + Mac)
+
+# Runs automatically on every push to main, and can also be triggered
+# manually from the "Actions" tab ("Run workflow" button).
+"on":
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: TSI_App-Windows
+          - os: macos-latest
+            artifact_name: TSI_App-Mac
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # Python 3.14 is used on BOTH platforms because it's currently the
+      # only CPython version for which "sonpy" (needed to open .smrx files
+      # directly) publishes ready-made wheels for both Windows and macOS.
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # --onefile   -> a single double-clickable file to share
+      # --windowed  -> no background console window (this is a GUI app);
+      #                 on macOS this is also what makes PyInstaller produce
+      #                 a real double-clickable .app bundle instead of a
+      #                 plain terminal executable
+      # --collect-all sonpy -> sonpy wraps a compiled library; this makes
+      #                 sure PyInstaller grabs every file it needs, not just
+      #                 the parts its static import-scanner can see
+      - name: Build with PyInstaller
+        run: >
+          pyinstaller --onefile --windowed --name "TSI_App"
+          --collect-all sonpy
+          --hidden-import matplotlib.backends.backend_tkagg
+          tsi_app.py
+
+      - name: Package macOS build as a .zip (keeps the .app bundle intact)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -r "TSI_App-Mac.zip" "TSI_App.app"
+
+      - name: Upload Windows build
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/TSI_App.exe
+          retention-days: 30
+
+      - name: Upload macOS build
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/TSI_App-Mac.zip
+          retention-days: 30
